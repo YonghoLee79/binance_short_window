@@ -1,0 +1,76 @@
+# 환경 설정 파일 (API 키 포함)
+.env
+*.env
+
+# 로그 파일
+*.log
+logs/
+
+# 데이터베이스 파일
+*.db
+*.sqlite
+*.sqlite3
+
+# Python 관련
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# 가상환경
+venv/
+env/
+ENV/
+.venv/
+
+# 백업 파일
+*.bak
+*.backup
+*.tmp
+
+# OS 관련
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE 관련
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 거래 데이터 및 개인 정보
+trade_history.log
+trading_bot.log
+trading_bot.db
+balance_history.json
+portfolio_history.json
+
+# 테스트 파일
+test_results/
+coverage/
+.coverage
+.pytest_cache/
