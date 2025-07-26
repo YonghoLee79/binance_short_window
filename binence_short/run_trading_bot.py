@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 트레이딩 봇 실행 스크립트
 """
 
 import sys
 import asyncio
+import os
 from pathlib import Path
+
+# UTF-8 인코딩 설정
+os.environ['PYTHONIOENCODING'] = 'utf-8'
 
 # 프로젝트 루트를 Python 경로에 추가
 project_root = Path(__file__).parent
@@ -13,14 +18,25 @@ sys.path.insert(0, str(project_root))
 
 def main():
     """메인 실행 함수"""
-    print("🚀 암호화폐 트레이딩 봇")
-    print("=" * 50)
+    try:
+        print("🚀 암호화폐 트레이딩 봇")
+        print("=" * 50)
+    except UnicodeEncodeError:
+        print("Trading Bot")
+        print("=" * 50)
     
-    print("\n실행 옵션을 선택하세요:")
-    print("1. 하이브리드 포트폴리오 봇 v2 (현물+선물) 🎯")
-    print("2. 모니터링 대시보드만 실행")
-    print("3. 단위 테스트 실행")
-    print("4. 데이터베이스 테스트")
+    try:
+        print("\n실행 옵션을 선택하세요:")
+        print("1. 하이브리드 포트폴리오 봇 v2 (현물+선물)")
+        print("2. 모니터링 대시보드만 실행")
+        print("3. 단위 테스트 실행")
+        print("4. 데이터베이스 테스트")
+    except UnicodeEncodeError:
+        print("\nSelect execution option:")
+        print("1. Hybrid Portfolio Bot v2 (Spot+Futures)")
+        print("2. Run monitoring dashboard only")
+        print("3. Run unit tests")
+        print("4. Database test")
     
     choice = input("\n선택 (1-4): ").strip()
     
@@ -37,13 +53,20 @@ def main():
 
 def run_hybrid_bot_v2():
     """하이브리드 포트폴리오 봇 v2 실행"""
-    print("\n💎 하이브리드 포트폴리오 봇 v2 실행 중...")
-    print("📊 현물 + 선물 통합 전략")
+    try:
+        print("\n💎 하이브리드 포트폴리오 봇 v2 실행 중...")
+        print("📊 현물 + 선물 통합 전략")
+    except UnicodeEncodeError:
+        print("\nHybrid Portfolio Bot v2 starting...")
+        print("Spot + Futures integrated strategy")
     try:
         from hybrid_trading_bot_v2 import main as hybrid_main
         asyncio.run(hybrid_main())
     except Exception as e:
-        print(f"❌ 하이브리드 봇 실행 실패: {e}")
+        try:
+            print(f"❌ 하이브리드 봇 실행 실패: {e}")
+        except UnicodeEncodeError:
+            print(f"Hybrid bot execution failed: {e}")
 
 def run_dashboard():
     """모니터링 대시보드 실행"""

@@ -143,11 +143,11 @@ class TestTechnicalAnalyzer(unittest.TestCase):
             if strength_type in strength:
                 self.assertIsInstance(strength[strength_type], (int, float, np.number))
     
-    @patch('modules.technical_analysis.talib.RSI')
-    def test_calculate_rsi_exception_handling(self, mock_rsi):
+    @patch('modules.technical_analysis.ta.momentum.RSIIndicator')
+    def test_calculate_rsi_exception_handling(self, mock_rsi_indicator):
         """RSI 계산 예외 처리 테스트"""
-        # talib.RSI가 예외를 발생시키도록 설정
-        mock_rsi.side_effect = Exception("Test exception")
+        # ta.momentum.RSIIndicator가 예외를 발생시키도록 설정
+        mock_rsi_indicator.side_effect = Exception("Test exception")
         
         rsi = self.analyzer.calculate_rsi(self.test_data['close'])
         
@@ -239,10 +239,11 @@ if __name__ == '__main__':
     test_suite = unittest.TestSuite()
     
     # 기본 테스트 추가
-    test_suite.addTest(unittest.makeSuite(TestTechnicalAnalyzer))
+    loader = unittest.TestLoader()
+    test_suite.addTest(loader.loadTestsFromTestCase(TestTechnicalAnalyzer))
     
     # 성능 테스트 추가 (선택적)
-    test_suite.addTest(unittest.makeSuite(TestTechnicalAnalyzerPerformance))
+    test_suite.addTest(loader.loadTestsFromTestCase(TestTechnicalAnalyzerPerformance))
     
     # 테스트 실행
     runner = unittest.TextTestRunner(verbosity=2)
@@ -250,7 +251,7 @@ if __name__ == '__main__':
     
     # 결과 출력
     if result.wasSuccessful():
-        print("\n🎉 모든 기술적 분석 테스트가 성공했습니다!")
+        print("\n모든 기술적 분석 테스트가 성공했습니다!")
     else:
-        print(f"\n❌ {len(result.failures)} 테스트 실패, {len(result.errors)} 오류 발생")
+        print(f"\n{len(result.failures)} 테스트 실패, {len(result.errors)} 오류 발생")
         sys.exit(1)

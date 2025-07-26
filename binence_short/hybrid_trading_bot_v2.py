@@ -28,6 +28,7 @@ from modules import (
 )
 from modules.hybrid_portfolio_strategy import HybridPortfolioStrategy
 from modules.database_manager import get_database_manager
+from modules.korea_compliance_manager import KoreaComplianceManager
 
 
 class HybridTradingBotV2:
@@ -79,7 +80,9 @@ class HybridTradingBotV2:
             exchange_config = {
                 'api_key': self.config.BINANCE_API_KEY,
                 'secret_key': self.config.BINANCE_SECRET_KEY,
-                'use_testnet': self.config.USE_TESTNET
+                'use_testnet': self.config.USE_TESTNET,
+                'testnet_api_key': self.config.BINANCE_TESTNET_API_KEY,
+                'testnet_secret_key': self.config.BINANCE_TESTNET_SECRET_KEY
             }
             self.exchange = ExchangeInterface(exchange_config)
             
@@ -116,7 +119,23 @@ class HybridTradingBotV2:
             # 데이터베이스
             self.db = get_database_manager()
             
-            self.logger.info("모든 컴포넌트 초기화 완료")
+            # 한국 규제 준수 관리자
+            korea_config = {
+                'UPBIT_ACCESS_KEY': self.config.UPBIT_ACCESS_KEY or '',
+                'UPBIT_SECRET_KEY': self.config.UPBIT_SECRET_KEY or '',
+                'AUTO_USDT_TRANSFER': self.config.AUTO_USDT_TRANSFER,
+                'MIN_USDT_TRANSFER': self.config.MIN_USDT_TRANSFER,
+                'MAX_USDT_TRANSFER': self.config.MAX_USDT_TRANSFER,
+                'USDT_TRANSFER_BUFFER': self.config.USDT_TRANSFER_BUFFER,
+                'USDT_NETWORK': self.config.USDT_NETWORK,
+                'BINANCE_USDT_ADDRESS': self.config.BINANCE_USDT_ADDRESS or '',
+                'BALANCE_CHECK_INTERVAL': self.config.BALANCE_CHECK_INTERVAL
+            }
+            
+            self.korea_compliance = KoreaComplianceManager(korea_config)
+            self.korea_compliance.set_binance_interface(self.exchange)
+            
+            self.logger.info("모든 컴포넌트 초기화 완료 (한국 규제 준수 포함)")
             
         except Exception as e:
             self.logger.error(f"컴포넌트 초기화 실패: {e}")
@@ -225,7 +244,7 @@ class HybridTradingBotV2:
             self.logger.error(f"심볼 데이터 수집 실패 ({symbol}): {e}")
             return None
     
-    def analyze_and_execute_strategy(self, market_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    async def analyze_and_execute_strategy(self, market_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         """전략 분석 및 실행"""
         try:
             # 포트폴리오 상태 업데이트
@@ -279,6 +298,21 @@ class HybridTradingBotV2:
                 signals = signals[:2]  # 신호 개수도 제한
             else:
                 confidence_threshold = base_confidence_threshold
+            
+            # USDT 가용성 확인 (한국 규제 대응)
+            required_usdt = self.korea_compliance.calculate_required_usdt([s for s in signals if s.get('action') == 'buy'])
+            if required_usdt > 0:
+                usdt_availability = await self.korea_compliance.ensure_usdt_availability(required_usdt)
+                if not usdt_availability['success'] and usdt_availability.get('manual_action_required'):
+                    self.logger.warning(f"⚠️ USDT 부족으로 일부 거래 제한: {usdt_availability.get('error')}")
+                    # 텔레그램 알림
+                    usdt_warning = f"""
+🚨 <b>USDT 부족 경고</b>
+필요 USDT: {required_usdt:.2f}
+상태: {usdt_availability.get('error', 'Unknown')}
+조치: 수동으로 Upbit에서 USDT 구매 후 Binance 전송 필요
+"""
+                    self.telegram.send_message(usdt_warning)
             
             # 신호 실행
             self.logger.info(f"생성된 신호 수: {len(signals)}개 (리스크 레벨: {risk_monitoring_result['risk_level']})")
@@ -349,7 +383,7 @@ class HybridTradingBotV2:
             )
             
             if not validation_result['is_valid']:
-                self.logger.info(f"신호 검증 실패: {signal['symbol']} - 신뢰도 {validation_result['confidence']:.2f}")
+                self.logger.debug(f"신호 검증 실패: {signal['symbol']} - 신뢰도 {validation_result['confidence']:.2f}")
                 return {'success': False, 'error': 'Signal validation failed'}
             
             # 2. 시장 조건 분석 및 적응형 포지션 사이징
@@ -408,7 +442,8 @@ class HybridTradingBotV2:
                 else:
                     self.performance_metrics['win_rate'] = 0.0
                 
-                self.logger.info(f"거래 실행 성공: {signal['strategy']} - {signal['symbol']} {signal['action']}")
+                self.logger.info(f"거래 실행 성공: {signal['strategy']} - {signal['symbol']} {signal['action']} "
+                               f"(신뢰도: {validation_result['confidence']:.3f})")
             
             return result
             
@@ -466,6 +501,14 @@ class HybridTradingBotV2:
             portfolio_state = self.portfolio_manager.get_portfolio_summary()
             metrics = self.hybrid_strategy.calculate_portfolio_metrics(portfolio_state)
             
+            # 업비트 잔액 정보 추가
+            upbit_balance_info = ""
+            try:
+                upbit_balance_display = self.korea_compliance.upbit.format_balance_display()
+                upbit_balance_info = f"\n\n{upbit_balance_display}"
+            except Exception as e:
+                upbit_balance_info = "\n\n🚫 업비트 잔고 조회 실패"
+            
             message = f"""
 💼 <b>하이브리드 포트폴리오 현황</b>
 
@@ -482,7 +525,7 @@ class HybridTradingBotV2:
 🎯 승률: {self.performance_metrics['win_rate']:.1f}%
 ⚖️ 레버리지: {metrics.get('leverage_ratio', 0):.1f}x
 
-{'🟢 균형 상태' if not metrics.get('rebalancing_needed') else '🟡 리밸런싱 필요'}
+{'🟢 균형 상태' if not metrics.get('rebalancing_needed') else '🟡 리밸런싱 필요'}{upbit_balance_info}
             """.strip()
             
             self.telegram.telegram.send_message(message)
@@ -532,31 +575,35 @@ class HybridTradingBotV2:
             
             self.telegram.send_trading_cycle_log(cycle_info)
             
-            # 거래 기회가 발견되었을 때 즉시 알림
-            for strategy, opportunities_list in opportunities.items():
-                for opp in opportunities_list[:2]:  # 최대 2개까지만
-                    if opp.get('confidence', 0) > 0.7:  # 신뢰도 70% 이상
-                        opp_info = {
-                            'strategy': strategy,
-                            'symbol': opp.get('symbol', 'N/A'),
-                            'confidence': opp.get('confidence', 0),
-                            'expected_return': opp.get('expected_profit', opp.get('expected_return', 0))
-                        }
-                        self.telegram.send_opportunity_alert(opp_info)
+            # 실제 거래가 실행된 경우에만 기회 알림 전송
+            if len(executed_trades) > 0:
+                for strategy, opportunities_list in opportunities.items():
+                    for opp in opportunities_list[:2]:  # 최대 2개까지만
+                        if opp.get('confidence', 0) > 0.7:  # 신뢰도 70% 이상
+                            opp_info = {
+                                'strategy': strategy,
+                                'symbol': opp.get('symbol', 'N/A'),
+                                'confidence': opp.get('confidence', 0),
+                                'expected_return': opp.get('expected_profit', opp.get('expected_return', 0))
+                            }
+                            self.telegram.send_opportunity_alert(opp_info)
             
         except Exception as e:
             self.logger.error(f"사이클 로그 전송 실패: {e}")
     
     def _send_performance_log(self):
-        """성과 로그 전송"""
+        """성과 로그 전송 - 거래가 있었을 때만"""
         try:
-            portfolio_state = self.portfolio_manager.get_portfolio_summary()
-            
-            # 시간별 성과 계산
+            # 최근 1시간 동안 거래가 있었는지 확인
             current_time = datetime.now()
             hour_ago = current_time - timedelta(hours=1)
-            
             hourly_stats = self.db.get_trading_statistics_period(hour_ago, current_time)
+            
+            # 최근 1시간 거래가 없으면 성과 로그 전송하지 않음
+            if hourly_stats.get('total_trades', 0) == 0:
+                return
+            
+            portfolio_state = self.portfolio_manager.get_portfolio_summary()
             
             performance_info = {
                 'current_balance': portfolio_state.get('total_balance', 0),
@@ -567,6 +614,7 @@ class HybridTradingBotV2:
             }
             
             self.telegram.send_performance_log(performance_info)
+            self.logger.info("거래 활동이 있어 성과 로그 전송")
             
         except Exception as e:
             self.logger.error(f"성과 로그 전송 실패: {e}")
@@ -630,7 +678,13 @@ class HybridTradingBotV2:
                 'market_condition': market_condition
             }
             
-            self.telegram.send_market_analysis_log(analysis_info)
+            # 강한 신호가 있거나 시장 조건이 극단적일 때만 전송
+            strong_signals_exist = any(signal['confidence'] > 0.7 for signal in top_signals[:3])
+            extreme_market = market_condition in ['bullish', 'bearish', 'volatile']
+            
+            if strong_signals_exist or extreme_market:
+                self.telegram.send_market_analysis_log(analysis_info)
+                self.logger.info(f"시장 분석 로그 전송: {market_condition}, 강한신호: {strong_signals_exist}")
             
         except Exception as e:
             self.logger.error(f"시장 분석 로그 전송 실패: {e}")
@@ -643,6 +697,16 @@ class HybridTradingBotV2:
             
             self.logger.info(f"=== 하이브리드 거래 사이클 #{self.cycle_count} 시작 ===")
             
+            # 업비트 잔액 표시 (매 5번째 사이클마다)
+            if self.cycle_count % 5 == 1:
+                try:
+                    upbit_balance_display = self.korea_compliance.upbit.format_balance_display()
+                    self.logger.info(f"\n{upbit_balance_display}")
+                    # 텔레그램으로도 전송
+                    self.telegram.send_message(f"📊 사이클 #{self.cycle_count}\n{upbit_balance_display}")
+                except Exception as e:
+                    self.logger.warning(f"업비트 잔액 조회 실패: {e}")
+            
             # 1. 시장 데이터 수집
             market_data = await self.collect_market_data()
             
@@ -651,7 +715,7 @@ class HybridTradingBotV2:
                 return
             
             # 2. 전략 분석 및 실행
-            executed_trades = self.analyze_and_execute_strategy(market_data)
+            executed_trades = await self.analyze_and_execute_strategy(market_data)
             
             # 3. 포트폴리오 상태 업데이트
             self.portfolio_manager.update_portfolio_state()
@@ -711,6 +775,9 @@ class HybridTradingBotV2:
             self.running = True
             self.logger.info("🚀 하이브리드 트레이딩 봇 v2 시작")
             
+            # 한국 규제 준수 모니터링 시작
+            korea_monitoring_task = asyncio.create_task(self.korea_compliance.start_monitoring())
+            
             while self.running:
                 await self.run_trading_cycle()
                 
@@ -722,6 +789,8 @@ class HybridTradingBotV2:
         except Exception as e:
             self.logger.error(f"봇 실행 실패: {e}")
         finally:
+            # 한국 규제 준수 모니터링 중지
+            self.korea_compliance.stop_monitoring()
             self.stop()
     
     def stop(self):
@@ -738,8 +807,12 @@ async def main():
 
 
 if __name__ == "__main__":
-    print("🚀 하이브리드 트레이딩 봇 v2 (현물 + 선물)")
-    print("=" * 50)
+    try:
+        print("🚀 하이브리드 트레이딩 봇 v2 (현물 + 선물)")
+        print("=" * 50)
+    except UnicodeEncodeError:
+        print("Hybrid Trading Bot v2 (Spot + Futures)")
+        print("=" * 50)
     
     # 비동기 실행
     asyncio.run(main())

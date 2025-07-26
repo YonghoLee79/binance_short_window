@@ -79,6 +79,12 @@ class TelegramNotifications:
         except Exception as e:
             logger.error(f"시작 알림 전송 실패: {e}")
     
+    def send_message(self, message: str) -> bool:
+        """편의 메서드: 텔레그램 메시지 전송"""
+        if not self.enabled:
+            return False
+        return self.telegram.send_message(message)
+    
     def send_trade_notification(self, trade_info: dict):
         """거래 알림"""
         if not self.enabled:
@@ -224,15 +230,21 @@ class TelegramNotifications:
             logger.error(f"일일 요약 알림 전송 실패: {e}")
     
     def send_trading_cycle_log(self, cycle_info: dict):
-        """실시간 거래 사이클 로그 전송"""
+        """실시간 거래 사이클 로그 전송 - 거래가 실행된 경우에만"""
         if not self.enabled:
             return
         
         try:
+            trades_executed = cycle_info.get('trades_executed', 0)
+            
+            # 실행된 거래가 없으면 알림 전송하지 않음 (강화된 필터링)
+            if trades_executed <= 0:
+                logger.debug(f"거래 실행 없음으로 알림 생략: 사이클 #{cycle_info.get('cycle_number', 0)}")
+                return
+            
             cycle_num = cycle_info.get('cycle_number', 0)
             duration = cycle_info.get('duration', 0)
             opportunities = cycle_info.get('opportunities', {})
-            trades_executed = cycle_info.get('trades_executed', 0)
             
             # 기회 발견 상황 요약
             opp_summary = []
@@ -251,11 +263,16 @@ class TelegramNotifications:
             else:
                 opp_text = "\n".join(opp_summary)
             
-            # 거래 실행 상태
-            trade_emoji = "💰" if trades_executed > 0 else "⏳"
+            # 최종 안전 체크: 거래가 실행되지 않았으면 메시지 전송하지 않음
+            if trades_executed <= 0:
+                logger.warning(f"최종 체크에서 거래 실행 없음 감지: {trades_executed}개")
+                return
+                
+            # 거래 실행 상태 (실행된 거래가 있으므로 항상 성공 이모지)
+            trade_emoji = "💰"
             
             message = f"""
-🔄 <b>거래 사이클 #{cycle_num}</b>
+🔄 <b>거래 사이클 #{cycle_num}</b> ✅
 
 ⏱️ 실행 시간: {duration:.1f}초
 📊 거래 기회:
@@ -264,10 +281,11 @@ class TelegramNotifications:
 {trade_emoji} 실행된 거래: {trades_executed}개
 📅 시간: {__import__('datetime').datetime.now().strftime('%H:%M:%S')}
 
-<i>사이클 완료</i>
+<i>거래 실행 완료</i>
             """.strip()
             
             self.telegram.send_message(message)
+            logger.info(f"거래 실행 사이클 알림 전송: 사이클 #{cycle_num}, 거래 {trades_executed}개")
             
         except Exception as e:
             logger.error(f"거래 사이클 로그 전송 실패: {e}")

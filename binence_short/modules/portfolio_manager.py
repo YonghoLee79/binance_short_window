@@ -166,8 +166,9 @@ class PortfolioManager:
             for i in range(1, len(self.balance_history)):
                 prev_value = self.balance_history[i-1]['total_value']
                 curr_value = self.balance_history[i]['total_value']
-                daily_return = (curr_value - prev_value) / prev_value
-                daily_returns.append(daily_return)
+                if prev_value > 0:  # zero division 방지
+                    daily_return = (curr_value - prev_value) / prev_value
+                    daily_returns.append(daily_return)
             
             if daily_returns:
                 avg_daily_return = np.mean(daily_returns)

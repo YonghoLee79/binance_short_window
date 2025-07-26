@@ -16,7 +16,28 @@ class Config:
     # API 키 설정
     BINANCE_API_KEY = os.getenv('BINANCE_API_KEY')
     BINANCE_SECRET_KEY = os.getenv('BINANCE_SECRET_KEY')
-    USE_TESTNET = os.getenv('USE_TESTNET', 'False').lower() == 'true'
+    USE_TESTNET = os.getenv('TRADING_MODE', 'testnet').lower() == 'testnet'
+    
+    # 테스트넷 API 키
+    BINANCE_TESTNET_API_KEY = os.getenv('BINANCE_TESTNET_API_KEY')
+    BINANCE_TESTNET_SECRET_KEY = os.getenv('BINANCE_TESTNET_SECRET_KEY')
+    
+    # Upbit API 설정 (한국 규제 대응)
+    UPBIT_ACCESS_KEY = os.getenv('UPBIT_ACCESS_KEY')
+    UPBIT_SECRET_KEY = os.getenv('UPBIT_SECRET_KEY')
+    
+    # 한국 규제 준수 설정
+    AUTO_USDT_TRANSFER = os.getenv('AUTO_USDT_TRANSFER', 'true').lower() == 'true'
+    MIN_USDT_TRANSFER = float(os.getenv('MIN_USDT_TRANSFER', '50'))
+    MAX_USDT_TRANSFER = float(os.getenv('MAX_USDT_TRANSFER', '5000'))
+    USDT_TRANSFER_BUFFER = float(os.getenv('USDT_TRANSFER_BUFFER', '1.1'))
+    USDT_NETWORK = os.getenv('USDT_NETWORK', 'TRC20')
+    BINANCE_USDT_ADDRESS = os.getenv('BINANCE_USDT_ADDRESS', '')
+    BALANCE_CHECK_INTERVAL = int(os.getenv('BALANCE_CHECK_INTERVAL', '300'))
+    
+    def get(self, key, default=None):
+        """설정값 조회 메소드"""
+        return getattr(self, key, default)
     
     # 텔레그램 설정
     TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
@@ -38,10 +59,10 @@ class Config:
         'ADA/USDT',   # 카르다노
         'AVAX/USDT',  # 아발란체
         'LINK/USDT',  # 체인링크
-        'DOT/USDT',   # 폴카닷 (선물 제외)
-        'MATIC/USDT', # 폴리곤 (현재 문제 발생)
-        # 'LTC/USDT',   # 라이트코인 (선물 문제로 제외)
+        'DOT/USDT',   # 폴카닷
+        'LTC/USDT',   # 라이트코인
         'TRX/USDT'    # 트론
+        # 'MATIC/USDT', # 폴리곤 (심볼 변경됨 - 제거)
     ]
     
     # 수수료 설정

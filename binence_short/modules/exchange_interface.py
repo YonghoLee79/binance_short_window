@@ -21,11 +21,21 @@ class ExchangeInterface:
     def setup_exchanges(self):
         """거래소 연결 설정"""
         try:
+            use_testnet = self.config.get('use_testnet', False)
+            
+            # 테스트넷 사용시 테스트넷 API 키 사용
+            if use_testnet:
+                api_key = self.config.get('testnet_api_key', self.config['api_key'])
+                secret_key = self.config.get('testnet_secret_key', self.config['secret_key'])
+            else:
+                api_key = self.config['api_key']
+                secret_key = self.config['secret_key']
+            
             # 현물 거래소 설정
             self.spot_exchange = ccxt.binance({
-                'apiKey': self.config['api_key'],
-                'secret': self.config['secret_key'],
-                'sandbox': self.config.get('use_testnet', False),
+                'apiKey': api_key,
+                'secret': secret_key,
+                'sandbox': use_testnet,
                 'defaultType': 'spot',
                 'options': {
                     'adjustForTimeDifference': True,
@@ -35,9 +45,9 @@ class ExchangeInterface:
             
             # 선물 거래소 설정
             self.futures_exchange = ccxt.binance({
-                'apiKey': self.config['api_key'],
-                'secret': self.config['secret_key'],
-                'sandbox': self.config.get('use_testnet', False),
+                'apiKey': api_key,
+                'secret': secret_key,
+                'sandbox': use_testnet,
                 'defaultType': 'future',
                 'options': {
                     'adjustForTimeDifference': True,
@@ -686,6 +696,54 @@ class ExchangeInterface:
         except Exception as e:
             logger.error(f"시장 정보 조회 실패 ({symbol}): {e}")
             return {}
+    
+    @retry_on_network_error(max_retries=3)
+    @rate_limit(calls_per_second=0.5)
+    def get_deposit_address(self, currency: str, network: str = None) -> Dict[str, Any]:
+        """입금 주소 조회"""
+        try:
+            if not self.spot_exchange:
+                logger.error("현물 거래소 연결이 설정되지 않았습니다")
+                return {}
+            
+            # Binance API를 통한 입금 주소 조회
+            if network:
+                address_info = self.spot_exchange.fetch_deposit_address(currency, network)
+            else:
+                address_info = self.spot_exchange.fetch_deposit_address(currency)
+            
+            return {
+                'currency': currency,
+                'address': address_info.get('address', ''),
+                'tag': address_info.get('tag', ''),
+                'network': address_info.get('network', network),
+                'info': address_info.get('info', {})
+            }
+            
+        except Exception as e:
+            logger.error(f"입금 주소 조회 실패 ({currency}): {e}")
+            return {}
+    
+    @retry_on_network_error(max_retries=3)
+    @rate_limit(calls_per_second=0.5)
+    def get_balance(self, currency: str = 'USDT', exchange_type: str = 'spot') -> Dict[str, float]:
+        """잔고 조회"""
+        try:
+            exchange = self.spot_exchange if exchange_type == 'spot' else self.futures_exchange
+            balance = exchange.fetch_balance()
+            
+            if currency in balance:
+                return {
+                    'free': float(balance[currency]['free']),
+                    'used': float(balance[currency]['used']),
+                    'total': float(balance[currency]['total'])
+                }
+            else:
+                return {'free': 0.0, 'used': 0.0, 'total': 0.0}
+                
+        except Exception as e:
+            logger.error(f"잔고 조회 실패 ({currency} {exchange_type}): {e}")
+            return {'free': 0.0, 'used': 0.0, 'total': 0.0}
     
     def is_exchange_available(self, exchange_type: str = 'both') -> bool:
         """거래소 연결 상태 확인"""

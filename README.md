@@ -33,6 +33,12 @@
 - **포트폴리오 리밸런싱**: 자동 자산 비중 조정
 - **다중 거래소 지원**: Binance 현물/선물 동시 운영
 
+### 🇰🇷 **한국 규제 준수 (신규)**
+- **Upbit-Binance 자동 연동**: KRW로 USDT 구매 후 자동 전송
+- **선제적 잔고 관리**: 거래 전 USDT 자동 확보
+- **실시간 전송 모니터링**: TRC20 네트워크 통한 저비용 전송
+- **규제 준수 알림**: 전송 상태 및 잔고 부족 실시간 알림
+
 ## 🛠️ 설치 및 설정
 
 ### 1. 환경 요구사항
@@ -43,7 +49,7 @@ Python 3.11+
 ### 2. 의존성 설치
 ```bash
 # Python 3.13 환경에서
-pip install python-dotenv ccxt pandas ta numpy scipy scikit-learn
+pip install python-dotenv ccxt pandas ta numpy scipy scikit-learn pyupbit jwt
 ```
 
 ### 3. 환경 설정
@@ -61,6 +67,10 @@ nano binence_short/.env
 BINANCE_API_KEY=실제_API_키
 BINANCE_SECRET_KEY=실제_시크릿_키
 
+# Upbit API 설정 (한국 규제 대응용) 🇰🇷
+UPBIT_ACCESS_KEY=실제_Upbit_API_키
+UPBIT_SECRET_KEY=실제_Upbit_시크릿_키
+
 # 텔레그램 봇 설정 (선택사항)
 TELEGRAM_BOT_TOKEN=실제_텔레그램_토큰
 TELEGRAM_CHAT_ID=실제_채팅_ID
@@ -69,6 +79,15 @@ TELEGRAM_CHAT_ID=실제_채팅_ID
 TRADING_MODE=testnet
 MAX_POSITION_SIZE=100
 RISK_PERCENTAGE=2.0
+
+# 한국 규제 준수 설정 🇰🇷
+AUTO_USDT_TRANSFER=true
+MIN_USDT_TRANSFER=50
+MAX_USDT_TRANSFER=5000
+USDT_TRANSFER_BUFFER=1.1
+USDT_NETWORK=TRC20
+BINANCE_USDT_ADDRESS=실제_Binance_USDT_입금주소
+BALANCE_CHECK_INTERVAL=300
 ```
 
 ## 🚀 실행 방법
@@ -165,6 +184,7 @@ REBALANCE_THRESHOLD = 0.05    # 리밸런싱 임계값 5%
 - [`EXECUTION_GUIDE.md`](binence_short/EXECUTION_GUIDE.md): 상세 실행 가이드
 - [`HYBRID_BOT_GUIDE.md`](binence_short/HYBRID_BOT_GUIDE.md): 하이브리드 전략 가이드
 - [`FINAL_SUMMARY.md`](binence_short/FINAL_SUMMARY.md): 전체 시스템 요약
+- [`KOREA_COMPLIANCE_GUIDE.md`](KOREA_COMPLIANCE_GUIDE.md): 🇰🇷 한국 규제 준수 가이드 (신규)
 
 ## 🧪 테스트
 
@@ -188,11 +208,13 @@ python binence_short/test_hybrid_strategy.py
 - **API 키 보안**: `.env` 파일을 절대 공유하지 마세요
 - **권한 설정**: API 키는 거래 권한만 부여하세요
 - **IP 제한**: 가능하면 IP 제한을 설정하세요
+- **🇰🇷 Upbit 보안**: 실명 인증 완료 및 출금 권한 주의
 
 ### 거래
 - **테스트넷 사용**: 실제 거래 전 충분한 테스트 필수
 - **소액 시작**: 처음에는 작은 금액으로 시작하세요
 - **지속적 모니터링**: 봇 실행 중 정기적인 확인 필요
+- **🇰🇷 규제 준수**: USDT 전송 시간 고려 (10-30분 소요)
 
 ### 기술적
 - **Python 버전**: 3.11+ 권장 (3.13에서 테스트됨)

@@ -234,23 +234,31 @@ class TechnicalAnalyzer:
             # 4. 노이즈 필터링
             noise_filter_score = self._apply_noise_filter(signals, market_data)
             
-            # 5. 최종 신호 강도 계산
+            # 5. 최종 신호 강도 계산 (가중치 조정으로 더 균형잡힌 평가)
             final_strength = (
-                consistency_score * 0.3 +
-                volume_confirmation * 0.25 +
-                market_regime_score * 0.25 +
-                noise_filter_score * 0.2
+                consistency_score * 0.25 +      # 일관성 (25%)
+                volume_confirmation * 0.30 +    # 거래량 확인 (30%)
+                market_regime_score * 0.20 +    # 시장 체제 (20%)  
+                noise_filter_score * 0.25       # 노이즈 필터링 (25%)
             )
             
-            # 6. 검증 결과
+            # 6. 검증 결과 (임계값을 낮춰서 더 많은 신호 허용)
+            is_valid = final_strength > 0.35
+            
             validation_result.update({
-                'is_valid': final_strength > 0.6,  # 60% 이상일 때만 유효
+                'is_valid': is_valid,
                 'confidence': final_strength,
                 'consistency_score': consistency_score,
                 'volume_confirmation': volume_confirmation,
                 'market_regime_score': market_regime_score,
                 'final_strength': final_strength
             })
+            
+            # 상세 로깅 (실패한 경우에만)
+            if not is_valid:
+                logger.debug(f"신호 검증 세부점수 - 일관성:{consistency_score:.3f}, 거래량:{volume_confirmation:.3f}, "
+                           f"시장체제:{market_regime_score:.3f}, 노이즈필터:{noise_filter_score:.3f}, "
+                           f"최종:{final_strength:.3f}")
             
             return validation_result
             
@@ -369,8 +377,8 @@ class TechnicalAnalyzer:
         try:
             combined_signal = signals.get('combined_signal', 0)
             
-            # 신호가 너무 약하면 노이즈로 간주
-            if abs(combined_signal) < 0.15:
+            # 신호가 너무 약하면 노이즈로 간주 (임계값 완화)
+            if abs(combined_signal) < 0.08:
                 return 0.1
             
             # 신호의 지속성 확인 (과거 신호와 비교)
