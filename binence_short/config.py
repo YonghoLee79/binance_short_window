@@ -16,11 +16,6 @@ class Config:
     # API 키 설정
     BINANCE_API_KEY = os.getenv('BINANCE_API_KEY')
     BINANCE_SECRET_KEY = os.getenv('BINANCE_SECRET_KEY')
-    USE_TESTNET = os.getenv('TRADING_MODE', 'testnet').lower() == 'testnet'
-    
-    # 테스트넷 API 키
-    BINANCE_TESTNET_API_KEY = os.getenv('BINANCE_TESTNET_API_KEY')
-    BINANCE_TESTNET_SECRET_KEY = os.getenv('BINANCE_TESTNET_SECRET_KEY')
     
     # Upbit API 설정 (한국 규제 대응)
     UPBIT_ACCESS_KEY = os.getenv('UPBIT_ACCESS_KEY')
@@ -43,26 +38,30 @@ class Config:
     TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
     TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
     
-    # 거래 설정
-    INITIAL_BALANCE = 1000.0  # 초기 자금
+    # 거래 설정 (실제 바이낸스 입금액 기준)
+    INITIAL_BALANCE = 805.0  # 초기 자금 (총 입금 $2340.95 - 총 출금 $1535.78 = $805.17)
     SPOT_ALLOCATION = 0.4     # 현물 할당 40% (수익률 최적화)
     FUTURES_ALLOCATION = 0.6  # 선물 할당 60% (레버리지 활용)
-    REBALANCE_THRESHOLD = 0.05  # 리밸런싱 임계값 5% (더 빈번한 리밸런싱)
+    REBALANCE_THRESHOLD = 0.03  # 리밸런싱 임계값 3% (더 빈번한 리밸런싱)
+    REBALANCE_INTERVAL_MINUTES = 15  # 리밸런싱 체크 간격 15분
+    AUTO_TRANSFER_ENABLED = True  # 자동 이체 활성화
+    BALANCE_CHECK_BEFORE_TRADE = True  # 거래 전 잔고 확인 활성화
     
     # 거래 심볼 (현물과 선물 모두 지원되는 메이저 코인만)
     TRADING_SYMBOLS = [
-        'BTC/USDT',   # 비트코인
-        'ETH/USDT',   # 이더리움
-        'BNB/USDT',   # 바이낸스 코인
-        'XRP/USDT',   # 리플
-        'SOL/USDT',   # 솔라나
-        'ADA/USDT',   # 카르다노
-        'AVAX/USDT',  # 아발란체
-        'LINK/USDT',  # 체인링크
-        'DOT/USDT',   # 폴카닷
-        'LTC/USDT',   # 라이트코인
-        'TRX/USDT'    # 트론
-        # 'MATIC/USDT', # 폴리곤 (심볼 변경됨 - 제거)
+        'BTC/USDT',   # 비트코인 - 확실히 작동
+        'ETH/USDT',   # 이더리움 - 확실히 작동
+        'LTC/USDT',   # 라이트코인 - 확실히 작동
+        'TRX/USDT',   # 트론 - 확실히 작동
+        'BNB/USDT',   # 바이낸스 코인 - 활성화 (보유 자산)
+        'XRP/USDT',   # 리플 - 활성화 (보유 자산)
+        # 아래 심볼들은 일시적으로 비활성화 (바이낸스에서 찾을 수 없음)
+        # 'SOL/USDT',   # 솔라나
+        # 'ADA/USDT',   # 카르다노
+        # 'AVAX/USDT',  # 아발란체
+        # 'LINK/USDT',  # 체인링크
+        # 'DOT/USDT',   # 폴카닷
+        # 'MATIC/USDT', # 폴리곤 (심볼 변경됨)
     ]
     
     # 수수료 설정
@@ -75,6 +74,19 @@ class Config:
             'maker': 0.0002,  # 0.02%
             'taker': 0.0004   # 0.04%
         }
+    }
+    
+    # 텔레그램 설정 (.env에서 읽기)
+    TELEGRAM = {
+        'enabled': os.getenv('TELEGRAM_ENABLED', 'false').lower() == 'true',
+        'bot_token': os.getenv('TELEGRAM_BOT_TOKEN'),
+        'chat_id': os.getenv('TELEGRAM_CHAT_ID'),
+        'balance_alert_interval': int(os.getenv('TELEGRAM_BALANCE_INTERVAL', '3600')),  # 1시간
+        'profit_alert_interval': int(os.getenv('TELEGRAM_PROFIT_INTERVAL', '21600')),   # 6시간
+        'trade_alerts': os.getenv('TELEGRAM_TRADE_ALERTS', 'true').lower() == 'true',
+        'error_alerts': os.getenv('TELEGRAM_ERROR_ALERTS', 'true').lower() == 'true',
+        'daily_summary': os.getenv('TELEGRAM_DAILY_SUMMARY', 'true').lower() == 'true',
+        'summary_time': os.getenv('TELEGRAM_SUMMARY_TIME', '21:00')
     }
     
     def get_risk_config(self):
@@ -143,3 +155,7 @@ class Config:
 
 # 전역 설정 인스턴스
 config = Config()
+
+def load_config():
+    """설정을 로드하는 함수"""
+    return config

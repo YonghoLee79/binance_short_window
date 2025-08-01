@@ -242,8 +242,8 @@ class TechnicalAnalyzer:
                 noise_filter_score * 0.25       # 노이즈 필터링 (25%)
             )
             
-            # 6. 검증 결과 (임계값을 낮춰서 더 많은 신호 허용)
-            is_valid = final_strength > 0.35
+            # 6. 검증 결과 (임계값을 더 낮춰서 더 많은 신호 허용)
+            is_valid = final_strength > 0.25
             
             validation_result.update({
                 'is_valid': is_valid,
@@ -254,9 +254,10 @@ class TechnicalAnalyzer:
                 'final_strength': final_strength
             })
             
-            # 상세 로깅 (실패한 경우에만)
+            # 상세 로깅 (성공/실패 모두)
+            logger.info(f"신호 검증 결과 - 유효:{is_valid}, 최종강도:{final_strength:.3f} (임계값:0.25)")
             if not is_valid:
-                logger.debug(f"신호 검증 세부점수 - 일관성:{consistency_score:.3f}, 거래량:{volume_confirmation:.3f}, "
+                logger.info(f"신호 검증 세부점수 - 일관성:{consistency_score:.3f}, 거래량:{volume_confirmation:.3f}, "
                            f"시장체제:{market_regime_score:.3f}, 노이즈필터:{noise_filter_score:.3f}, "
                            f"최종:{final_strength:.3f}")
             

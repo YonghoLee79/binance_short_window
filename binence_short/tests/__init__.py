@@ -1,1 +1,0 @@
-# Trading Bot Tests Package

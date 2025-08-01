@@ -455,11 +455,16 @@ class PortfolioManager:
             for symbol in self.trading_symbols:
                 try:
                     ticker = self.exchange.get_ticker(symbol, 'spot')
-                    if ticker and ticker.get('last'):
+                    if ticker and ticker.get('last') and ticker['last'] > 0:
                         prices[symbol] = ticker['last']
+                    else:
+                        logger.warning(f"유효하지 않은 가격 데이터 ({symbol}): {ticker}")
+                        # 가격이 0이거나 None이면 아예 해당 심볼을 제외
+                        continue
                 except Exception as e:
                     logger.warning(f"가격 조회 실패 ({symbol}): {e}")
-                    prices[symbol] = 0
+                    # 오류 발생 시 해당 심볼 제외
+                    continue
             return prices
         except Exception as e:
             logger.error(f"현재 가격 조회 실패: {e}")
@@ -487,14 +492,105 @@ class PortfolioManager:
             return False
     
     def get_current_balance(self) -> float:
-        """현재 총 잔고 조회"""
+        """현재 총 잔고 조회 (모든 자산을 USDT로 환산)"""
         try:
+            # 실시간 거래소 잔고 조회
+            spot_balance = self.exchange.get_spot_balance()
+            futures_balance = self.exchange.get_futures_balance()
+            
+            # 현물 자산을 USDT로 환산
+            spot_usdt_value = self._calculate_spot_value_in_usdt(spot_balance)
+            
+            # 선물 USDT 잔고 (상세 로깅 추가)
+            futures_usdt = 0
+            logger.debug(f"선물 잔고 응답 구조: {list(futures_balance.keys()) if futures_balance else 'None'}")
+            
+            if 'balances' in futures_balance and futures_balance['balances']:
+                logger.debug(f"선물 잔고 - balances 형식 감지, 항목 수: {len(futures_balance['balances'])}")
+                for balance in futures_balance['balances']:
+                    asset = balance.get('asset', '')
+                    balance_amount = balance.get('balance', 0)
+                    if asset == 'USDT' and float(balance_amount) > 0:
+                        futures_usdt = float(balance_amount)
+                        logger.info(f"선물 USDT 잔고 발견: {futures_usdt}")
+                        break
+                    elif asset == 'USDT':
+                        logger.debug(f"선물 USDT 잔고: {balance_amount} (0 또는 빈 값)")
+            elif 'total' in futures_balance and 'USDT' in futures_balance['total']:
+                futures_usdt = float(futures_balance['total']['USDT'])
+                logger.info(f"선물 USDT 잔고 (total 형식): {futures_usdt}")
+            else:
+                logger.warning(f"선물 잔고 형식을 인식할 수 없음: {futures_balance}")
+            
+            total_balance = spot_usdt_value + futures_usdt
+            
+            # 최소값 보장 (0보다는 초기 잔고를 반환)
+            if total_balance <= 0:
+                logger.warning(f"잔고 조회 결과 0 또는 음수: spot={spot_usdt_value}, futures={futures_usdt}")
+                return self.initial_balance
+            
+            logger.info(f"총 자산 계산 완료: 현물=${spot_usdt_value:.2f}, 선물=${futures_usdt:.2f}, 총액=${total_balance:.2f}")
+            return total_balance
+            
+        except Exception as e:
+            logger.error(f"실시간 잔고 조회 실패: {e}")
+            # 히스토리가 있으면 마지막 값 사용, 없으면 초기 잔고
             if self.balance_history:
                 return self.balance_history[-1]['total_value']
             return self.initial_balance
+    
+    def _calculate_spot_value_in_usdt(self, spot_balance: Dict[str, Any]) -> float:
+        """현물 자산을 USDT로 환산"""
+        try:
+            total_usdt_value = 0
+            major_assets = ['BTC', 'ETH', 'BNB', 'XRP', 'TRX', 'LTC', 'USDT']
+            
+            # 각 자산의 잔고와 현재 가격 조회
+            for asset in major_assets:
+                asset_balance = 0
+                
+                # 자산 잔고 조회
+                if 'balances' in spot_balance:
+                    for balance in spot_balance['balances']:
+                        if balance.get('asset') == asset:
+                            asset_balance = float(balance.get('free', 0)) + float(balance.get('locked', 0))
+                            break
+                elif 'total' in spot_balance and asset in spot_balance['total']:
+                    asset_balance = float(spot_balance['total'][asset])
+                
+                if asset_balance > 0:
+                    if asset == 'USDT':
+                        usdt_value = asset_balance
+                    else:
+                        # 현재 가격 조회 (USDT 기준)
+                        try:
+                            ticker = self.exchange.get_ticker(f"{asset}/USDT", 'spot')
+                            current_price = float(ticker.get('last', 0))
+                            usdt_value = asset_balance * current_price
+                        except Exception as e:
+                            logger.warning(f"{asset} 가격 조회 실패: {e}")
+                            usdt_value = 0
+                    
+                    if usdt_value > 0:
+                        total_usdt_value += usdt_value
+                        logger.info(f"{asset} 자산: {asset_balance:.6f} = ${usdt_value:.2f}")
+            
+            logger.info(f"현물 총 가치: ${total_usdt_value:.2f}")
+            return total_usdt_value
+            
         except Exception as e:
-            logger.error(f"현재 잔고 조회 실패: {e}")
-            return self.initial_balance
+            logger.error(f"현물 자산 환산 실패: {e}")
+            # 기존 USDT만 계산하는 방식으로 fallback
+            try:
+                if 'total' in spot_balance and 'USDT' in spot_balance['total']:
+                    return float(spot_balance['total']['USDT'])
+            except:
+                pass
+            return 0
+    
+    def get_total_balance(self) -> float:
+        """총 잔고 조회 (get_current_balance와 동일한 기능)"""
+        return self.get_current_balance()
     
     def get_portfolio_summary(self) -> Dict[str, Any]:
         """포트폴리오 요약 정보"""
@@ -503,23 +599,46 @@ class PortfolioManager:
             spot_balance = self.exchange.get_spot_balance()
             futures_balance = self.exchange.get_futures_balance()
             
-            # 현재 포트폴리오 가치 계산
-            current_balance = self._calculate_portfolio_value(spot_balance, futures_balance, [])
+            # 현물 자산을 USDT로 환산
+            spot_usdt_value = self._calculate_spot_value_in_usdt(spot_balance)
             
-            # 현물과 선물 잔고 분리
-            spot_usdt = spot_balance.get('total', {}).get('USDT', 0)
-            futures_usdt = futures_balance.get('total', {}).get('USDT', 0)
-            total_balance = spot_usdt + futures_usdt
+            # 선물 USDT 잔고 (포트폴리오 요약용)
+            futures_usdt = 0
+            logger.debug(f"포트폴리오 요약 - 선물 잔고 응답: {list(futures_balance.keys()) if futures_balance else 'None'}")
+            
+            # 우선순위: total > balances
+            if 'total' in futures_balance and 'USDT' in futures_balance['total']:
+                futures_usdt = float(futures_balance['total']['USDT'])
+                logger.info(f"포트폴리오 요약 - 선물 USDT (total): {futures_usdt}")
+            elif 'balances' in futures_balance and futures_balance['balances']:
+                for balance in futures_balance['balances']:
+                    asset = balance.get('asset', '')
+                    balance_amount = balance.get('balance', 0)
+                    if asset == 'USDT':
+                        futures_usdt = float(balance_amount)
+                        logger.info(f"포트폴리오 요약 - 선물 USDT (balances): {futures_usdt}")
+                        break
+            else:
+                logger.warning(f"선물 잔고 파싱 실패 - 응답 형식: {futures_balance}")
+            
+            # 총 잔고 계산
+            total_balance = spot_usdt_value + futures_usdt
+            current_balance = total_balance
             
             allocation = self._get_current_allocation()
+            
+            # 실제 사용 가능한 USDT 잔고 계산
+            spot_usdt_free = 0
+            if 'free' in spot_balance and 'USDT' in spot_balance['free']:
+                spot_usdt_free = float(spot_balance['free']['USDT'])
             
             return {
                 'total_balance': total_balance,
                 'current_balance': current_balance,
-                'spot_balance': spot_usdt,
+                'spot_balance': spot_usdt_value,
                 'futures_balance': futures_usdt,
-                'spot_free_balance': spot_balance.get('free', {}).get('USDT', 0),
-                'futures_free_balance': futures_balance.get('free', {}).get('USDT', 0),
+                'spot_free_balance': spot_usdt_free,  # 실제 사용 가능한 USDT만
+                'futures_free_balance': futures_usdt,
                 'initial_balance': self.initial_balance,
                 'total_pnl': current_balance - self.initial_balance,
                 'total_pnl_pct': (current_balance - self.initial_balance) / self.initial_balance * 100 if self.initial_balance > 0 else 0,
@@ -538,8 +657,8 @@ class PortfolioManager:
                 'current_balance': self.initial_balance,
                 'spot_balance': self.initial_balance * self.spot_allocation,
                 'futures_balance': self.initial_balance * self.futures_allocation,
-                'spot_free_balance': self.initial_balance * self.spot_allocation,
-                'futures_free_balance': self.initial_balance * self.futures_allocation,
+                'spot_free_balance': 0,  # 실패 시 0으로 설정 (안전)
+                'futures_free_balance': 0,  # 실패 시 0으로 설정 (안전)
                 'initial_balance': self.initial_balance,
                 'total_pnl': 0,
                 'total_pnl_pct': 0,

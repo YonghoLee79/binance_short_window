@@ -54,7 +54,7 @@ class AsyncTradingBot:
             exchange_config = {
                 'api_key': self.config.BINANCE_API_KEY,
                 'secret_key': self.config.BINANCE_SECRET_KEY,
-                'use_testnet': self.config.USE_TESTNET
+                'use_testnet': False
             }
             self.exchange = ExchangeInterface(exchange_config)
             
@@ -423,7 +423,7 @@ async def main():
 
 
 if __name__ == "__main__":
-    print("🚀 비동기 처리 최적화된 트레이딩 봇")
+    print("비동기 처리 최적화된 트레이딩 봇")
     print("=" * 50)
     
     # 비동기 실행

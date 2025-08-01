@@ -31,6 +31,10 @@ class ExchangeInterface:
                 api_key = self.config['api_key']
                 secret_key = self.config['secret_key']
             
+            # API 키들을 인스턴스 변수로 저장
+            self.api_key = api_key
+            self.secret_key = secret_key
+            
             # 현물 거래소 설정
             self.spot_exchange = ccxt.binance({
                 'apiKey': api_key,
@@ -103,45 +107,113 @@ class ExchangeInterface:
                 return {'total': {}, 'free': {}, 'used': {}}
             
             balance = self.spot_exchange.fetch_balance()
+            
+            # 상세 로깅 추가
+            usdt_total = balance['total'].get('USDT', 0)
+            usdt_free = balance['free'].get('USDT', 0)
+            usdt_used = balance['used'].get('USDT', 0)
+            
+            logger.debug(f"현물 잔고 조회 성공: USDT 총액={usdt_total}, 사용가능={usdt_free}, 사용중={usdt_used}")
+            
+            # 주요 자산도 로깅
+            major_assets = ['BTC', 'ETH', 'BNB', 'XRP', 'TRX']
+            for asset in major_assets:
+                if balance['total'].get(asset, 0) > 0:
+                    logger.debug(f"현물 {asset}: {balance['total'][asset]}")
+            
             return {
                 'total': balance['total'],
                 'free': balance['free'],
                 'used': balance['used']
             }
         except ccxt.AuthenticationError as e:
-            logger.error(f"API 키 인증 오류: {e}")
-            # API 키 문제일 때는 재시도하지 않고 빈 잔고 반환
+            logger.error(f"현물 API 키 인증 오류: {e}")
             return {'total': {'USDT': 0}, 'free': {'USDT': 0}, 'used': {'USDT': 0}}
         except ccxt.PermissionDenied as e:
-            logger.error(f"API 키 권한 오류: {e}")
+            logger.error(f"현물 API 키 권한 오류: {e}")
             return {'total': {'USDT': 0}, 'free': {'USDT': 0}, 'used': {'USDT': 0}}
         except Exception as e:
             logger.error(f"현물 잔고 조회 실패: {e}")
+            logger.error(f"오류 타입: {type(e).__name__}")
             return {'total': {}, 'free': {}, 'used': {}}
     
     @retry_on_network_error(max_retries=3)
     @rate_limit(calls_per_second=0.5)
     def get_futures_balance(self) -> Dict[str, float]:
-        """선물 잔고 조회"""
+        """선물 잔고 조회 (직접 API 호출)"""
         try:
-            if not self.futures_exchange:
-                logger.error("선물 거래소 연결이 설정되지 않았습니다")
-                return {'total': {}, 'free': {}, 'used': {}}
+            import requests
+            import time
+            import hmac
+            import hashlib
+            from urllib.parse import urlencode
             
-            balance = self.futures_exchange.fetch_balance()
-            return {
-                'total': balance['total'],
-                'free': balance['free'],
-                'used': balance['used']
-            }
+            # 바이낸스 선물 API 직접 호출
+            timestamp = int(time.time() * 1000)
+            params = {'timestamp': timestamp}
+            query_string = urlencode(params)
+            signature = hmac.new(
+                self.secret_key.encode('utf-8'),
+                query_string.encode('utf-8'),
+                hashlib.sha256
+            ).hexdigest()
+            
+            headers = {'X-MBX-APIKEY': self.api_key}
+            url = f"https://fapi.binance.com/fapi/v2/balance?{query_string}&signature={signature}"
+            
+            response = requests.get(url, headers=headers, timeout=10)
+            
+            if response.status_code == 200:
+                futures_data = response.json()
+                logger.debug(f"선물 API 직접 호출 성공: {len(futures_data)}개 자산")
+                
+                # 응답을 CCXT 형식으로 변환
+                total = {}
+                free = {}
+                used = {}
+                balances_format = []
+                
+                for balance in futures_data:
+                    asset = balance['asset']
+                    balance_amount = float(balance['balance'])
+                    available = float(balance['availableBalance'])
+                    
+                    total[asset] = balance_amount
+                    free[asset] = available
+                    used[asset] = balance_amount - available
+                    
+                    if balance_amount > 0:
+                        balances_format.append({
+                            'asset': asset,
+                            'balance': str(balance_amount),
+                            'free': str(available),
+                            'locked': str(balance_amount - available)
+                        })
+                
+                usdt_total = total.get('USDT', 0)
+                usdt_free = free.get('USDT', 0)
+                usdt_used = used.get('USDT', 0)
+                
+                logger.info(f"선물 잔고 조회 성공 (직접 API): USDT 총액={usdt_total}, 사용가능={usdt_free}, 사용중={usdt_used}")
+                
+                return {
+                    'total': total,
+                    'free': free,
+                    'used': used,
+                    'balances': balances_format
+                }
+            else:
+                logger.error(f"선물 API 직접 호출 실패: {response.status_code} - {response.text}")
+                return {'total': {'USDT': 0}, 'free': {'USDT': 0}, 'used': {'USDT': 0}, 'balances': []}
         except ccxt.AuthenticationError as e:
-            logger.error(f"API 키 인증 오류: {e}")
+            logger.error(f"선물 API 키 인증 오류: {e}")
             return {'total': {'USDT': 0}, 'free': {'USDT': 0}, 'used': {'USDT': 0}}
         except ccxt.PermissionDenied as e:
-            logger.error(f"API 키 권한 오류: {e}")
+            logger.error(f"선물 API 키 권한 오류: {e}")
             return {'total': {'USDT': 0}, 'free': {'USDT': 0}, 'used': {'USDT': 0}}
         except Exception as e:
             logger.error(f"선물 잔고 조회 실패: {e}")
+            logger.error(f"오류 타입: {type(e).__name__}")
             return {'total': {}, 'free': {}, 'used': {}}
     
     @retry_on_network_error(max_retries=3)
@@ -227,6 +299,20 @@ class ExchangeInterface:
                    order_type: str = 'market', exchange_type: str = 'spot') -> Dict[str, Any]:
         """주문 생성"""
         try:
+            # 주문 실행 전 최종 잔고 확인
+            if side == 'buy' and exchange_type == 'spot':
+                balance = self.get_spot_balance()
+                available_usdt = balance.get('free', {}).get('USDT', 0)
+                
+                # 현재 가격으로 필요 금액 계산
+                ticker = self.get_ticker(symbol, exchange_type)
+                current_price = ticker.get('last', 0) if ticker else 0
+                required_usdt = amount * current_price * 1.002  # 수수료 여유분 포함
+                
+                if available_usdt < required_usdt:
+                    logger.warning(f"주문 실행 중단 - 잔고 부족: 필요 ${required_usdt:.2f}, 보유 ${available_usdt:.2f}")
+                    return {'error': 'Insufficient balance', 'required': required_usdt, 'available': available_usdt}
+            
             exchange = self.spot_exchange if exchange_type == 'spot' else self.futures_exchange
             
             if order_type == 'market':
@@ -251,40 +337,151 @@ class ExchangeInterface:
 
     def execute_smart_order(self, symbol: str, side: str, amount: float, 
                            exchange_type: str = 'spot', strategy_type: str = 'default') -> Dict[str, Any]:
-        """스마트 주문 실행 시스템"""
+        """스마트 주문 실행 시스템 (자동 잔고 확인 및 이체 포함)"""
         try:
-            # 1. 시장 상황 분석
-            market_analysis = self._analyze_market_conditions(symbol, exchange_type)
+            # 1. 최소 거래 수량 확인
+            min_amount = self._get_min_order_amount(symbol, exchange_type)
+            if amount < min_amount:
+                logger.warning(f"최소 주문 수량 미달: {amount} < {min_amount} ({symbol})")
+                return {'success': False, 'error': f'Minimum order amount not met: {amount} < {min_amount}'}
             
-            # 2. 최적 주문 타입 결정
-            optimal_order_type = self._determine_optimal_order_type(
-                market_analysis, amount, strategy_type
-            )
+            # 2. 거래 전 자동 잔고 확인 및 이체
+            balance_check_result = self._ensure_sufficient_balance(symbol, side, amount, exchange_type)
+            if not balance_check_result['success']:
+                logger.error(f"잔고 확보 실패: {balance_check_result['error']}")
+                return balance_check_result
             
-            # 3. 주문 실행
-            if optimal_order_type == 'twap':
-                return self._execute_twap_order(symbol, side, amount, exchange_type)
-            elif optimal_order_type == 'iceberg':
-                return self._execute_iceberg_order(symbol, side, amount, exchange_type)
-            elif optimal_order_type == 'smart_limit':
-                return self._execute_smart_limit_order(symbol, side, amount, exchange_type)
+            # 3. 간단한 시장가 주문으로 실행
+            order_result = self.place_order(symbol, side, amount, None, 'market', exchange_type)
+            
+            if order_result and order_result.get('id'):
+                logger.info(f"주문 실행 성공: {symbol} {side} {amount:.6f}")
+                return {
+                    'success': True,
+                    'order_id': order_result['id'],
+                    'symbol': order_result.get('symbol', symbol),
+                    'side': order_result.get('side', side),
+                    'amount': order_result.get('amount', amount),
+                    'price': order_result.get('price', 0),
+                    'type': order_result.get('type', 'market'),
+                    'status': order_result.get('status', 'pending'),
+                    'timestamp': order_result.get('timestamp', datetime.now().isoformat())
+                }
             else:
-                # 기본 지정가 주문
-                current_price = self._get_current_price(symbol, exchange_type)
-                spread = self._get_bid_ask_spread(symbol, exchange_type)
-                
-                # 스프레드의 30% 지점에 주문 (더 나은 가격 확보)
-                if side == 'buy':
-                    limit_price = current_price - (spread * 0.3)
-                else:
-                    limit_price = current_price + (spread * 0.3)
-                
-                return self.place_order(symbol, side, amount, limit_price, 'limit', exchange_type)
+                return {'success': False, 'error': 'Order creation failed'}
                 
         except Exception as e:
             logger.error(f"스마트 주문 실행 실패: {e}")
-            # 실패시 기본 시장가 주문으로 폴백
-            return self.place_order(symbol, side, amount, None, 'market', exchange_type)
+            return {'success': False, 'error': str(e)}
+
+    def _ensure_sufficient_balance(self, symbol: str, side: str, amount: float, exchange_type: str) -> Dict[str, Any]:
+        """거래 전 충분한 잔고 확보 (자동 이체 포함)"""
+        try:
+            current_price = self._get_current_price(symbol, exchange_type)
+            
+            if side == 'buy':
+                # 매수의 경우 USDT 잔고 확인
+                required_usdt = amount * current_price * 1.02  # 2% 여유분 (수수료 포함)
+                
+                balance = self.get_spot_balance() if exchange_type == 'spot' else self.get_futures_balance()
+                available_usdt = balance.get('free', {}).get('USDT', 0)
+                
+                logger.info(f"잔고 확인: 필요={required_usdt:.2f} USDT, 보유={available_usdt:.2f} USDT")
+                
+                if available_usdt < required_usdt:
+                    # 자동 이체 시도
+                    shortage = required_usdt - available_usdt
+                    logger.info(f"USDT 부족 ({shortage:.2f}), 자동 이체 시도...")
+                    
+                    # AutoTransfer 모듈 사용 (모듈이 없으면 스킵)
+                    try:
+                        from modules.auto_transfer import AutoTransfer
+                        from config import load_config
+                        
+                        config = load_config()
+                        auto_transfer = AutoTransfer(config)
+                        
+                        # 타겟 마켓에 충분한 잔고 확보
+                        transfer_success = auto_transfer.ensure_sufficient_balance(
+                            market_type=exchange_type,
+                            required_amount=required_usdt
+                        )
+                        
+                        if transfer_success:
+                            logger.info("자동 이체 성공, 잔고 재확인...")
+                            # 잔고 재확인
+                            balance = self.get_spot_balance() if exchange_type == 'spot' else self.get_futures_balance()
+                            available_usdt = balance.get('free', {}).get('USDT', 0)
+                            
+                            if available_usdt >= required_usdt:
+                                logger.info(f"이체 후 잔고 충분: {available_usdt:.2f} USDT")
+                                return {'success': True}
+                            else:
+                                logger.warning(f"이체 후에도 잔고 부족: {available_usdt:.2f} < {required_usdt:.2f}")
+                                return {'success': False, 'error': 'Insufficient balance after transfer'}
+                        else:
+                            logger.warning(f"자동 이체 실패 - 기존 잔고로 거래 진행: 필요 {shortage:.2f} USDT")
+                            # 자동 이체 실패 시 기존 잔고로만 거래 시도
+                            logger.info(f"기존 잔고로 거래 시도: ${available_usdt:.2f} USDT")
+                            return {'success': True, 'limited_balance': True}
+                    except ImportError:
+                        logger.debug("auto_transfer 모듈이 없어 자동 이체 건너뜀 - 기존 잔고로 거래 진행")
+                        # 자동 이체 모듈 없어도 기존 잔고로 거래 시도
+                        logger.info(f"기존 잔고로 거래 시도: ${available_usdt:.2f} USDT")
+                        return {'success': True, 'limited_balance': True}
+                            
+                    except Exception as transfer_error:
+                        logger.error(f"자동 이체 중 오류: {transfer_error}")
+                        return {'success': False, 'error': f'Transfer error: {str(transfer_error)}'}
+                
+                return {'success': True}
+                
+            elif side == 'sell':
+                # 매도의 경우 해당 암호화폐 잔고 확인
+                base_asset = symbol.split('/')[0]  # BTC/USDT -> BTC
+                
+                balance = self.get_spot_balance() if exchange_type == 'spot' else self.get_futures_balance()
+                available_asset = balance.get('free', {}).get(base_asset, 0)
+                
+                if available_asset < amount:
+                    logger.warning(f"{base_asset} 잔고 부족: 필요={amount:.6f}, 보유={available_asset:.6f}")
+                    return {'success': False, 'error': f'Insufficient {base_asset} balance: need {amount:.6f}, have {available_asset:.6f}'}
+                
+                return {'success': True}
+            
+            return {'success': True}
+            
+        except Exception as e:
+            logger.error(f"잔고 확인 중 오류: {e}")
+            return {'success': False, 'error': str(e)}
+
+    def _get_min_order_amount(self, symbol: str, exchange_type: str) -> float:
+        """최소 주문 수량 조회"""
+        try:
+            exchange = self.spot_exchange if exchange_type == 'spot' else self.futures_exchange
+            market = exchange.market(symbol)
+            
+            # 최소 주문 수량 (notional 또는 amount 기준)
+            min_amount = market.get('limits', {}).get('amount', {}).get('min', 0.001)
+            min_notional = market.get('limits', {}).get('cost', {}).get('min', 10.0)
+            
+            # 현재 가격 기준으로 더 높은 값 사용
+            current_price = self._get_current_price(symbol, exchange_type)
+            if current_price > 0:
+                min_amount_by_notional = min_notional / current_price
+                return max(min_amount, min_amount_by_notional)
+            
+            return min_amount
+            
+        except Exception as e:
+            logger.error(f"최소 주문 수량 조회 실패: {e}")
+            # 기본값 반환
+            if 'BTC' in symbol:
+                return 0.001  # BTC 최소 수량
+            elif 'ETH' in symbol:
+                return 0.01   # ETH 최소 수량
+            else:
+                return 1.0    # 기타 코인 최소 수량
 
     def _analyze_market_conditions(self, symbol: str, exchange_type: str) -> Dict[str, Any]:
         """시장 상황 분석"""

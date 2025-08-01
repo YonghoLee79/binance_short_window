@@ -654,4 +654,4 @@ if __name__ == "__main__":
         stats = db.get_trading_statistics(days=1)
         print(f"거래 통계: {stats}")
         
-        print("✅ 데이터베이스 테스트 완료")
+        print("데이터베이스 테스트 완료")

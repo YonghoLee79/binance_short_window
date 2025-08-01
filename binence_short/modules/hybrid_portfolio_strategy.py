@@ -23,12 +23,15 @@ class HybridPortfolioStrategy:
         self.config = config
         
         # 포트폴리오 할당
-        self.spot_allocation = config.get('spot_allocation', 0.6)  # 현물 60%
-        self.futures_allocation = config.get('futures_allocation', 0.4)  # 선물 40%
+        self.spot_allocation = config.get('spot_allocation', 0.4)  # 현물 40%
+        self.futures_allocation = config.get('futures_allocation', 0.6)  # 선물 60%
         
         # 전략 설정 (매우 적극적 거래를 위한 초 민감 설정)
         self.arbitrage_threshold = config.get('arbitrage_threshold', 0.0005)  # 0.05% 프리미엄 (초민감)
-        self.rebalance_threshold = config.get('rebalance_threshold', 0.03)  # 3% 편차시 리밸런싱
+        self.rebalance_threshold = config.get('REBALANCE_THRESHOLD', 0.03)  # 3% 편차시 리밸런싱
+        self.rebalance_interval_minutes = config.get('REBALANCE_INTERVAL_MINUTES', 15)  # 15분 간격
+        self.auto_transfer_enabled = config.get('AUTO_TRANSFER_ENABLED', True)  # 자동 이체 활성화
+        self.balance_check_before_trade = config.get('BALANCE_CHECK_BEFORE_TRADE', True)  # 거래 전 잔고 확인
         self.max_leverage = config.get('max_leverage', 5)  # 최대 5배 레버리지
         
         # 리스크 관리
@@ -47,17 +50,17 @@ class HybridPortfolioStrategy:
             'TRX/USDT'  # LTC, DOT, MATIC 제외
         ]
         
-        # 현물 심볼 -> 선물 심볼 매핑
+        # 현물 심볼 -> 선물 심볼 매핑 (바이낸스 USDT-M 선물 형식)
         self.futures_symbol_mapping = {
-            'BTC/USDT': 'BTCUSDT',
-            'ETH/USDT': 'ETHUSDT', 
-            'BNB/USDT': 'BNBUSDT',
-            'XRP/USDT': 'XRPUSDT',
-            'SOL/USDT': 'SOLUSDT',
-            'ADA/USDT': 'ADAUSDT',
-            'AVAX/USDT': 'AVAXUSDT',
-            'LINK/USDT': 'LINKUSDT',
-            'TRX/USDT': 'TRXUSDT'
+            'BTC/USDT': 'BTC/USDT:USDT',
+            'ETH/USDT': 'ETH/USDT:USDT', 
+            'BNB/USDT': 'BNB/USDT:USDT',
+            'XRP/USDT': 'XRP/USDT:USDT',
+            'SOL/USDT': 'SOL/USDT:USDT',
+            'ADA/USDT': 'ADA/USDT:USDT',
+            'AVAX/USDT': 'AVAX/USDT:USDT',
+            'LINK/USDT': 'LINK/USDT:USDT',
+            'TRX/USDT': 'TRX/USDT:USDT'
         }
         
         logger.info("하이브리드 포트폴리오 전략 초기화 완료")
@@ -213,8 +216,8 @@ class HybridPortfolioStrategy:
             logger.info(f"사용 가능한 잔고 - 현물: ${spot_free_balance:.2f}, 선물: ${futures_free_balance:.2f}")
             
             # 잔고가 부족하면 신호 생성 중단
-            if spot_free_balance < 10 and futures_free_balance < 10:  # 최소 $10 필요
-                logger.warning("거래 가능한 잔고가 부족합니다")
+            if spot_free_balance < 5 and futures_free_balance < 5:  # 바이낸스 최소 $5 필요
+                logger.warning(f"거래 가능한 잔고가 부족합니다 - 현물: ${spot_free_balance:.2f}, 선물: ${futures_free_balance:.2f}")
                 return []
             
             # 1. 아비트라지 신호 (최우선)
@@ -224,15 +227,22 @@ class HybridPortfolioStrategy:
             for i, arb in enumerate(sorted(arbitrage_opportunities, key=lambda x: x['expected_profit'], reverse=True)):
                 logger.info(f"아비트라지 #{i+1}: {arb['symbol']} - 신뢰도: {arb['confidence']:.3f}, 수익률: {arb['expected_profit']:.4f}")
                 
-                if arb['confidence'] > 0.3:
-                    # 사용 가능한 잔고의 5%만 사용 (보수적)
-                    max_spot_amount = spot_free_balance * 0.05
-                    max_futures_amount = futures_free_balance * 0.05
+                if arb['confidence'] >= 0.25:  # 임계값을 25% 이상으로 수정 (경계값 포함)
+                    # 사용 가능한 잔고에 맞춰 동적 조정
+                    if spot_free_balance < 5:
+                        max_spot_amount = 0  # 잔고 부족 시 현물 거래 중단
+                    else:
+                        max_spot_amount = min(spot_free_balance * 0.8, 100)  # 잔고의 80% 또는 최대 $100
+                    
+                    if futures_free_balance < 5:
+                        max_futures_amount = 0  # 잔고 부족 시 선물 거래 중단
+                    else:
+                        max_futures_amount = min(futures_free_balance * 0.8, 100)  # 잔고의 80% 또는 최대 $100
                     
                     logger.debug(f"계산된 투자 금액 - 현물: ${max_spot_amount:.2f}, 선물: ${max_futures_amount:.2f}")
                     
-                    # 최소 거래 금액 확인 ($20 이상)
-                    min_trade_amount = 20.0
+                    # 최소 거래 금액 확인 ($5 이상으로 낮춤)
+                    min_trade_amount = 5.0
                     if max_spot_amount < min_trade_amount and max_futures_amount < min_trade_amount:
                         logger.warning(f"투자 금액 부족으로 스킵: {arb['symbol']} - 필요: ${min_trade_amount}, 가능: ${max(max_spot_amount, max_futures_amount):.2f}")
                         continue
@@ -316,8 +326,12 @@ class HybridPortfolioStrategy:
                         })
             
             # 2. 트렌드 추종 신호
-            for trend in sorted(opportunities['trend_following'], key=lambda x: x['confidence'], reverse=True):
-                if trend['confidence'] > 0.3:
+            trend_opportunities = opportunities.get('trend_following', [])
+            logger.info(f"트렌드 기회 상세 분석:")
+            for i, trend in enumerate(sorted(trend_opportunities, key=lambda x: x['confidence'], reverse=True)):
+                logger.info(f"  트렌드 #{i+1}: {trend['symbol']} - 신뢰도: {trend['confidence']:.3f}, 방향: {trend.get('direction', 'N/A')}")
+                
+                if trend['confidence'] >= 0.25:  # 임계값을 25% 이상으로 수정 (경계값 포함)
                     # 현재 가격 가져오기
                     symbol_data = market_data.get(trend['symbol'], {}) if market_data else {}
                     spot_price = symbol_data.get('spot_ticker', {}).get('last', 0)
@@ -332,7 +346,7 @@ class HybridPortfolioStrategy:
                     max_futures_amount = futures_free_balance * 0.03
                     
                     # 최소 거래 금액 확인
-                    min_trade_amount = 15.0
+                    min_trade_amount = 5.0
                     if max_spot_amount < min_trade_amount and max_futures_amount < min_trade_amount:
                         continue
                     
@@ -342,7 +356,15 @@ class HybridPortfolioStrategy:
                     if spot_size <= 0:
                         continue
                     
+                    # 트렌드 방향에 따른 거래 결정 (잔고 고려)
                     action = 'buy' if trend['direction'] == 'bullish' else 'sell'
+                    
+                    # 매도 시도 시 해당 코인 보유량 확인 (현재는 USDT만 보유하므로 매도 불가)
+                    if action == 'sell':
+                        # TODO: 실제 보유량 확인 로직 추가 필요
+                        # 현재는 USDT만 보유하므로 매도 신호 스킵
+                        logger.debug(f"매도 신호 스킵: {trend['symbol']} - 해당 코인 미보유")
+                        continue
                     
                     # 현물 신호는 항상 추가
                     signals.append({
@@ -455,34 +477,50 @@ class HybridPortfolioStrategy:
             return []
     
     def check_rebalancing_needed(self, portfolio_state: Dict[str, Any]) -> bool:
-        """리밸런싱 필요 여부 확인"""
+        """리밸런싱 필요 여부 확인 - USDT 전용 포트폴리오 최적화"""
         try:
             total_balance = portfolio_state.get('total_balance', 0)
-            spot_value = portfolio_state.get('spot_balance', 0)
-            futures_value = portfolio_state.get('futures_balance', 0)
+            spot_usdt = portfolio_state.get('spot_balance', 0)
+            futures_usdt = portfolio_state.get('futures_balance', 0)
             
-            if total_balance <= 0:
+            # 최소 잔고 확인
+            if total_balance <= 100:
+                logger.debug(f"잔고가 너무 적어 리밸런싱 불필요: ${total_balance:.2f}")
                 return False
             
-            current_spot_ratio = spot_value / total_balance
-            current_futures_ratio = futures_value / total_balance
+            # USDT만 보유한 경우의 비율 계산
+            current_spot_ratio = spot_usdt / total_balance
+            current_futures_ratio = futures_usdt / total_balance
             
             spot_deviation = abs(current_spot_ratio - self.spot_allocation)
             futures_deviation = abs(current_futures_ratio - self.futures_allocation)
             
-            # 임계값 초과 또는 일정 시간 경과시 리밸런싱
+            # 시간 기반 리밸런싱 조건 개선 (설정 기반)
             time_passed = datetime.now() - self.last_rebalance
-            time_threshold = timedelta(hours=12)  # 12시간마다
+            time_threshold = timedelta(minutes=self.rebalance_interval_minutes)  # 설정에서 가져온 간격
+            
+            # 자동 이체가 활성화된 경우 더 적극적으로 리밸런싱
+            if self.auto_transfer_enabled:
+                adjusted_threshold = self.rebalance_threshold  # 원래 임계값 사용
+                min_balance_for_rebalancing = 20  # 최소 $20
+            else:
+                adjusted_threshold = self.rebalance_threshold * 2  # 더 관대한 임계값
+                min_balance_for_rebalancing = 200  # 최소 $200
             
             needs_rebalancing = (
-                spot_deviation > self.rebalance_threshold or
-                futures_deviation > self.rebalance_threshold or
-                time_passed > time_threshold
+                (spot_deviation > adjusted_threshold or futures_deviation > adjusted_threshold) and
+                total_balance >= min_balance_for_rebalancing
+            ) or (
+                time_passed > time_threshold and 
+                (spot_deviation > self.rebalance_threshold * 0.5)  # 시간 기반은 더 민감하게
             )
             
             if needs_rebalancing:
                 logger.info(f"리밸런싱 필요: 현물비율 {current_spot_ratio:.2%} (목표: {self.spot_allocation:.2%}), "
                           f"선물비율 {current_futures_ratio:.2%} (목표: {self.futures_allocation:.2%})")
+            else:
+                logger.debug(f"리밸런싱 불필요: 편차 현물={spot_deviation:.1%}, 선물={futures_deviation:.1%}, "
+                           f"경과시간={time_passed.total_seconds()/3600:.1f}시간")
             
             return needs_rebalancing
             
@@ -491,73 +529,46 @@ class HybridPortfolioStrategy:
             return False
     
     def generate_rebalancing_orders(self, portfolio_state: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """리밸런싱 주문 생성"""
+        """리밸런싱 주문 생성 - USDT 전용 포트폴리오 최적화"""
         try:
             orders = []
             total_balance = portfolio_state.get('total_balance', 0)
-            current_spot_value = portfolio_state.get('spot_balance', 0)
-            current_futures_value = portfolio_state.get('futures_balance', 0)
+            spot_usdt = portfolio_state.get('spot_balance', 0)
+            futures_usdt = portfolio_state.get('futures_balance', 0)
             
             # 최소 잔고 확인 ($100 이하면 리밸런싱 스킵)
             if total_balance < 100:
                 logger.info(f"잔고가 너무 적어 리밸런싱 스킵: ${total_balance:.2f}")
                 return []
             
-            target_spot_value = total_balance * self.spot_allocation
-            target_futures_value = total_balance * self.futures_allocation
-            
-            spot_adjustment = target_spot_value - current_spot_value
-            futures_adjustment = target_futures_value - current_futures_value
-            
-            # 최소 조정 금액 설정 ($20 이상)
-            min_adjustment_amount = 20.0
-            
-            # 현물 조정
-            if abs(spot_adjustment) > min_adjustment_amount:
-                main_symbol = 'BTC/USDT'
-                current_price = portfolio_state.get('current_prices', {}).get(main_symbol, 0)
+            # USDT만 보유한 경우: 초기 자산 구매 전략
+            if spot_usdt > 0 or futures_usdt > 0:
+                # 현재 비율 계산
+                current_spot_ratio = spot_usdt / total_balance
+                current_futures_ratio = futures_usdt / total_balance
                 
-                if current_price > 0:
-                    # 안전한 수량 계산 사용
-                    safe_quantity = self._calculate_safe_quantity(main_symbol, abs(spot_adjustment), current_price, 'spot')
+                # 목표 비율과 비교
+                spot_deviation = abs(current_spot_ratio - self.spot_allocation)
+                futures_deviation = abs(current_futures_ratio - self.futures_allocation)
+                
+                # 리밸런싱 필요성 확인
+                if spot_deviation > self.rebalance_threshold or futures_deviation > self.rebalance_threshold:
+                    logger.info(f"USDT 리밸런싱 필요: 현물 {current_spot_ratio:.2%}→{self.spot_allocation:.2%}, "
+                              f"선물 {current_futures_ratio:.2%}→{self.futures_allocation:.2%}")
                     
-                    if safe_quantity > 0:
-                        action = 'buy' if spot_adjustment > 0 else 'sell'
-                        orders.append({
-                            'strategy': 'rebalancing',
-                            'symbol': main_symbol,
-                            'exchange_type': 'spot',
-                            'action': action,
-                            'size': safe_quantity,
-                            'confidence': 1.0,
-                            'priority': 0
-                        })
-            
-            # 선물 조정 - 일시적으로 비활성화 (선물 심볼 문제 해결 후 재활성화)
-            # if abs(futures_adjustment) > min_adjustment_amount:
-            #     main_symbol = 'BTCUSDT'  # 선물은 다른 형식
-            #     current_price = portfolio_state.get('current_prices', {}).get('BTC/USDT', 0)
-            #     
-            #     if current_price > 0:
-            #         safe_quantity = self._calculate_safe_quantity('BTC/USDT', abs(futures_adjustment), current_price, 'futures')
-            #         
-            #         if safe_quantity > 0:
-            #             action = 'buy' if futures_adjustment > 0 else 'sell'
-            #             orders.append({
-            #                 'strategy': 'rebalancing',
-            #                 'symbol': main_symbol,
-            #                 'exchange_type': 'futures',
-            #                 'action': action,
-            #                 'size': safe_quantity,
-            #                 'confidence': 1.0,
-            #                 'priority': 0
-            #             })
+                    # 초기 자산 구매 주문 생성 (USDT → 암호화폐)
+                    initial_orders = self._generate_initial_purchase_orders(portfolio_state)
+                    orders.extend(initial_orders)
+                else:
+                    logger.debug("USDT 비율이 목표 범위 내에 있음")
+            else:
+                logger.warning(f"비정상적인 잔고 상태: 현물=${spot_usdt:.2f}, 선물=${futures_usdt:.2f}")
             
             if orders:
                 self.last_rebalance = datetime.now()
                 logger.info(f"리밸런싱 주문 생성: {len(orders)}개")
             else:
-                logger.info("리밸런싱 필요하지만 안전한 수량 계산 불가로 스킵")
+                logger.debug("리밸런싱 주문 생성 조건에 미달")
             
             return orders
             
@@ -640,8 +651,8 @@ class HybridPortfolioStrategy:
                 'TRX/USDT': 1.0        # 1.0 TRX
             }
             
-            # 최소 거래 금액 (바이낸스는 보통 $10)
-            min_notional = 10.0
+            # 최소 거래 금액 (바이낸스 최소 $5)
+            min_notional = 5.0
             
             # 기본 최소 수량
             min_quantity = min_quantities.get(symbol, 0.001)
@@ -682,6 +693,78 @@ class HybridPortfolioStrategy:
         except Exception as e:
             logger.error(f"안전한 수량 계산 실패 ({symbol}): {e}")
             return 0.0
+
+    def _generate_initial_purchase_orders(self, portfolio_state: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """초기 자산 구매 주문 생성 (USDT → 암호화폐)"""
+        try:
+            orders = []
+            total_balance = portfolio_state.get('total_balance', 0)
+            current_prices = portfolio_state.get('current_prices', {})
+            
+            # 기본 투자 심볼들 (유동성이 높고 안정적인 코인들)
+            primary_symbols = ['BTC/USDT', 'ETH/USDT']
+            
+            # 현물 투자 (목표 비율에서 현재 비율을 뺀 만큼)
+            spot_target_investment = total_balance * (self.spot_allocation * 0.8)  # 80%만 초기 투자
+            
+            # 심볼별 균등 분할
+            per_symbol_amount = spot_target_investment / len(primary_symbols)
+            
+            for symbol in primary_symbols:
+                current_price = current_prices.get(symbol, 0)
+                
+                if current_price <= 0:
+                    logger.warning(f"가격 정보 없음, 스킵: {symbol}")
+                    continue
+                
+                # 최소 투자 금액 확인 ($10 이상으로 완화)
+                if per_symbol_amount < 10:
+                    logger.info(f"투자 금액이 너무 적음: {symbol} - ${per_symbol_amount:.2f}")
+                    continue
+                
+                # 안전한 수량 계산
+                safe_quantity = self._calculate_safe_quantity(symbol, per_symbol_amount, current_price, 'spot')
+                
+                if safe_quantity > 0:
+                    orders.append({
+                        'strategy': 'initial_investment',
+                        'symbol': symbol,
+                        'exchange_type': 'spot',
+                        'action': 'buy',
+                        'size': safe_quantity,
+                        'confidence': 0.8,
+                        'priority': 1
+                    })
+                    logger.info(f"초기 투자 주문: {symbol} 매수 {safe_quantity:.6f} @ ${current_price:.2f} (${per_symbol_amount:.2f})")
+            
+            # 선물 투자는 더 보수적으로 접근 (BTC만)
+            futures_target_investment = total_balance * (self.futures_allocation * 0.3)  # 30%만 초기 투자
+            
+            if futures_target_investment >= 50:  # 최소 $50으로 완화
+                btc_price = current_prices.get('BTC/USDT', 0)
+                
+                if btc_price > 0:
+                    # 선물은 BTC/USDT 형식으로 통일 (거래소 인터페이스에서 처리)
+                    futures_symbol = 'BTC/USDT'
+                    safe_quantity = self._calculate_safe_quantity(futures_symbol, futures_target_investment, btc_price, 'futures')
+                    
+                    if safe_quantity > 0:
+                        orders.append({
+                            'strategy': 'initial_investment',
+                            'symbol': futures_symbol,
+                            'exchange_type': 'futures',
+                            'action': 'buy',
+                            'size': safe_quantity,
+                            'confidence': 0.7,
+                            'priority': 2
+                        })
+                        logger.info(f"초기 선물 투자: {futures_symbol} 매수 {safe_quantity:.6f} @ ${btc_price:.2f} (${futures_target_investment:.2f})")
+            
+            return orders
+            
+        except Exception as e:
+            logger.error(f"초기 구매 주문 생성 실패: {e}")
+            return []
 
     def get_strategy_summary(self) -> Dict[str, Any]:
         """전략 요약 정보 반환"""

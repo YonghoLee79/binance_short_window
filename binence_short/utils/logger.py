@@ -13,9 +13,14 @@ class TradingLogger:
     def __init__(self, 
                  name: str = 'trading_bot',
                  log_file: str = 'trading_bot.log',
-                 log_level: str = 'INFO',
+                 log_level: str = 'DEBUG',
                  max_size: str = '10MB',
                  backup_count: int = 5):
+        
+        # 환경변수에서 로그 파일명 확인
+        import os
+        if 'LOG_FILE' in os.environ:
+            log_file = os.environ['LOG_FILE']
         
         self.name = name
         self.log_file = log_file

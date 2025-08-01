@@ -19,7 +19,7 @@ sys.path.insert(0, str(project_root))
 def main():
     """메인 실행 함수"""
     try:
-        print("🚀 암호화폐 트레이딩 봇")
+        print("암호화폐 트레이딩 봇")
         print("=" * 50)
     except UnicodeEncodeError:
         print("Trading Bot")
@@ -49,13 +49,13 @@ def main():
     elif choice == "4":
         run_database_test()
     else:
-        print("❌ 잘못된 선택입니다. 1-4 사이의 숫자를 입력하세요.")
+        print("잘못된 선택입니다. 1-4 사이의 숫자를 입력하세요.")
 
 def run_hybrid_bot_v2():
     """하이브리드 포트폴리오 봇 v2 실행"""
     try:
-        print("\n💎 하이브리드 포트폴리오 봇 v2 실행 중...")
-        print("📊 현물 + 선물 통합 전략")
+        print("\n하이브리드 포트폴리오 봇 v2 실행 중...")
+        print("현물 + 선물 통합 전략")
     except UnicodeEncodeError:
         print("\nHybrid Portfolio Bot v2 starting...")
         print("Spot + Futures integrated strategy")
@@ -64,13 +64,13 @@ def run_hybrid_bot_v2():
         asyncio.run(hybrid_main())
     except Exception as e:
         try:
-            print(f"❌ 하이브리드 봇 실행 실패: {e}")
+            print(f"하이브리드 봇 실행 실패: {e}")
         except UnicodeEncodeError:
             print(f"Hybrid bot execution failed: {e}")
 
 def run_dashboard():
     """모니터링 대시보드 실행"""
-    print("\n📊 모니터링 대시보드 실행 중...")
+    print("\n모니터링 대시보드 실행 중...")
     print("웹 대시보드: http://localhost:8080")
     try:
         from modules.monitoring_dashboard import MonitoringDashboard, WebDashboardServer
@@ -84,13 +84,13 @@ def run_dashboard():
         
         asyncio.run(start_dashboard())
     except KeyboardInterrupt:
-        print("\n📊 대시보드 종료")
+        print("\n대시보드 종료")
     except Exception as e:
-        print(f"❌ 대시보드 실행 실패: {e}")
+        print(f"대시보드 실행 실패: {e}")
 
 def run_tests():
     """단위 테스트 실행"""
-    print("\n🧪 단위 테스트 실행 중...")
+    print("\n단위 테스트 실행 중...")
     try:
         import subprocess
         
@@ -103,20 +103,20 @@ def run_tests():
                                capture_output=True, text=True)
         
         if result1.returncode == 0 and result2.returncode == 0:
-            print("✅ 모든 테스트 통과!")
+            print("모든 테스트 통과!")
         else:
-            print("❌ 일부 테스트 실패")
+            print("일부 테스트 실패")
             if result1.returncode != 0:
                 print(f"기술적 분석 테스트 오류:\n{result1.stderr}")
             if result2.returncode != 0:
                 print(f"리스크 관리 테스트 오류:\n{result2.stderr}")
                 
     except Exception as e:
-        print(f"❌ 테스트 실행 실패: {e}")
+        print(f"테스트 실행 실패: {e}")
 
 def run_database_test():
     """데이터베이스 테스트 실행"""
-    print("\n🗄️ 데이터베이스 테스트 실행 중...")
+    print("\n데이터베이스 테스트 실행 중...")
     try:
         from modules.database_manager import DatabaseManager
         
@@ -136,18 +136,18 @@ def run_database_test():
             }
             
             trade_id = db.insert_trade(trade_data)
-            print(f"✅ 거래 기록 삽입 성공: ID {trade_id}")
+            print(f"거래 기록 삽입 성공: ID {trade_id}")
             
             trades = db.get_trades(limit=5)
-            print(f"✅ 거래 기록 조회 성공: {len(trades)}개")
+            print(f"거래 기록 조회 성공: {len(trades)}개")
             
             stats = db.get_trading_statistics(days=1)
-            print(f"✅ 거래 통계 조회 성공")
+            print(f"거래 통계 조회 성공")
             
-            print("✅ 데이터베이스 테스트 완료")
+            print("데이터베이스 테스트 완료")
             
     except Exception as e:
-        print(f"❌ 데이터베이스 테스트 실패: {e}")
+        print(f"데이터베이스 테스트 실패: {e}")
 
 if __name__ == "__main__":
     main()

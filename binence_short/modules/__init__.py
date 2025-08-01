@@ -7,7 +7,7 @@ from .exchange_interface import ExchangeInterface
 from .strategy_engine import StrategyEngine
 from .risk_manager import RiskManager
 from .portfolio_manager import PortfolioManager
-from .telegram_notifications import TelegramNotifications
+# from .telegram_notifications import TelegramNotifications
 from .hybrid_portfolio_strategy import HybridPortfolioStrategy
 
 __all__ = [
@@ -16,6 +16,6 @@ __all__ = [
     'StrategyEngine',
     'RiskManager',
     'PortfolioManager',
-    'TelegramNotifications',
+    # 'TelegramNotifications',
     'HybridPortfolioStrategy'
 ]
